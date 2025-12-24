@@ -1,6 +1,6 @@
 // src/store/orderStore.ts
 import { create } from 'zustand';
-import { MasterOrder, UploadedFile } from '../types';
+import type { MasterOrder, UploadedFile } from '../types';
 
 interface OrderState {
   // 상태 (State)

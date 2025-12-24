@@ -1,7 +1,7 @@
 // src/lib/excelHandler.ts
 import * as XLSX from 'xlsx';
 import { v4 as uuidv4 } from 'uuid'; // npm install uuid 했다고 가정 (없으면 Math.random 대체 가능)
-import { MasterOrder, UploadedFile } from '../types';
+import type { MasterOrder, UploadedFile } from '../types';
 import { HEADER_MAPPING, PRODUCT_NORMALIZATION_RULES } from './constants';
 
 /**
@@ -109,7 +109,16 @@ export const convertToMasterData = (files: UploadedFile[]): MasterOrder[] => {
             value = normalizeProductName(String(value));
           }
 
-          newOrder[mappedKey] = value;
+          // 덮어쓰기 방지 로직
+          const existingValue = newOrder[mappedKey];
+          
+          if (!existingValue) {
+            newOrder[mappedKey] = value;
+          } 
+          // 기존 값이 있어도, 새로운 값이 유효하면(빈칸 아님) 덮어씀
+          else if (value && String(value).trim() !== '') {
+             newOrder[mappedKey] = value;
+          }
         }
       });
 
