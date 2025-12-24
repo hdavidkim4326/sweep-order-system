@@ -1,25 +1,35 @@
-// src/App.tsx
-import React, { useCallback, useState, useEffect } from 'react';
-import { Upload, FileSpreadsheet, Trash2, Download, AlertCircle, Search, X, HelpCircle } from 'lucide-react';
+import React, { useCallback, useState } from 'react';
+import { Upload, FileSpreadsheet, Trash2, Download, Search, X, HelpCircle, Settings } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useOrderStore } from './store/orderStore';
 import { processExcelFile, convertToMasterData } from './lib/excelHandler';
 import { MASTER_HEADERS } from './lib/constants';
+import { SettingsModal } from './components/SettingsModal';
 
 function App() {
-  const { files, masterData, addFiles, setMasterData, clearAll, removeFile } = useOrderStore();
+  // Store에서 상태와 액션들 가져오기 (매핑 규칙 포함)
+  const { 
+    files, masterData, addFiles, setMasterData, clearAll, removeFile,
+    headerMappings, productRules 
+  } = useOrderStore();
+  
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // 검색 기능능(Ctrl+F 기능)
+  // 모달 상태 관리
   const [searchTerm, setSearchTerm] = useState('');
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // 업로드 파일 삭제 시 데이터 재계산 로직
   const handleRemoveFile = (fileId: string) => {
     removeFile(fileId); // 스토어에서 파일 삭제
     const remainingFiles = useOrderStore.getState().files.filter(f => f.id !== fileId);
-    const newMasterData = convertToMasterData(remainingFiles);
+    
+    // 현재 설정된 매핑 규칙을 적용하여 재계산
+    const currentState = useOrderStore.getState();
+    const newMasterData = convertToMasterData(remainingFiles, currentState.headerMappings, currentState.productRules);
     setMasterData(newMasterData);
   };
 
@@ -31,11 +41,10 @@ function App() {
     XLSX.writeFile(wb, `원본_${file.name}`);
   };
   
-
   /**
-     * 파일 처리 핸들러
-     * 다중 파일 병렬 파싱(Promise.all) 후 Global State 업데이트
-     */
+   * 파일 처리 핸들러
+   * 다중 파일 병렬 파싱(Promise.all) 후 Global State 업데이트
+   */
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
@@ -90,7 +99,10 @@ function App() {
 
       // 전체 데이터 재계산 (기존 + 이번에 추가된 파일)
       const allFiles = [...currentFiles, ...finalFilesToAdd]; 
-      const newMasterData = convertToMasterData(allFiles);
+      
+      // 현재 설정된 매핑 규칙을 전달하여 변환
+      const currentState = useOrderStore.getState();
+      const newMasterData = convertToMasterData(allFiles, currentState.headerMappings, currentState.productRules);
       setMasterData(newMasterData);
 
     } catch (error) {
@@ -118,7 +130,6 @@ function App() {
 
   /**
    * 통합 데이터 엑셀 다운로드 (SheetJS 활용)
-   * JSON -> AOA(Array of Arrays) 변환 후 시트 생성
    */
   const handleDownload = () => {
     if (masterData.length === 0) {
@@ -141,7 +152,7 @@ function App() {
 
     const finalData = [MASTER_HEADERS, ...excelData];
 
-    // Worksheet 생성 및 스타일 설정(Column Width)
+    // Worksheet 생성 및 스타일 설정
     const ws = XLSX.utils.aoa_to_sheet(finalData);
     ws['!cols'] = [
       { wch: 10 }, // 수령인
@@ -176,12 +187,11 @@ function App() {
     );
   });
 
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans pb-20">
       <header className="sticky top-0 z-50 bg-white border-b border-gray-200">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-          {/* 제목목 */}
+          {/* 제목 */}
           <div
             className="flex cursor-pointer items-center gap-2 text-orange-600"
             onClick={() => window.location.reload()}
@@ -192,11 +202,23 @@ function App() {
             </h1>
           </div>
 
-          {/* 우측 사이트 정보 */}
+          {/* 우측 사이트 정보 및 버튼 */}
           <div className="flex items-center gap-4">
             <div className="hidden font-mono text-xs text-gray-400 sm:block">
               Files: {files.length} | Rows: {masterData.length}
             </div>
+            
+            {/* 설정 버튼 */}
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              title="매핑 설정 관리자"
+              className="rounded-full p-2 text-gray-400 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+
+            {/* 도움말 버튼 */}
             <button
               type="button"
               onClick={() => setIsHelpOpen(true)}
@@ -212,7 +234,7 @@ function App() {
 
       <main className="max-w-7xl mx-auto px-6 py-10 space-y-6">
         
-        {/* 1. 업로드 섹션 */}
+        {/* 1. 업로드 및 파일 목록 통합 섹션 */}
         <section className="bg-white rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-3">
           
           {/* 왼쪽: 드래그 앤 드롭 영역 */}
@@ -240,7 +262,7 @@ function App() {
             </div>
           </div>
 
-          {/* 오른쪽: 파일 목록 관리 (1/3 차지) */}
+          {/* 오른쪽: 파일 목록 관리 */}
           <div className="relative p-6 flex flex-col h-full">
             {/* divider */}
             <div className="hidden lg:block absolute left-0 top-6 bottom-4 w-px bg-gray-100" />
@@ -278,7 +300,7 @@ function App() {
           </div>
         </section>
 
-        {/* 2. 미리보기 섹션 (Feature 2 & 3: 엑셀 스타일 + 검색) */}
+        {/* 2. 미리보기 섹션 */}
         <section className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[500px]">
           {/* Toolbar */}
           <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -374,6 +396,10 @@ function App() {
           </div>
         </section>
       </main>
+
+      {/* 설정 모달 (새로 추가됨) */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
       {/* 사용 가이드 모달 */}
       {isHelpOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-all">

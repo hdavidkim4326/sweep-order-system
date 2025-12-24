@@ -1,33 +1,85 @@
-// src/store/orderStore.ts
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { MasterOrder, UploadedFile } from '../types';
+import { 
+  DEFAULT_HEADER_MAPPING, 
+  DEFAULT_PRODUCT_NORMALIZATION_RULES 
+} from '../lib/constants';
 
 interface OrderState {
-  // 상태 (State)
+  // 상태
   files: UploadedFile[];
   masterData: MasterOrder[];
-  
-  // 액션 (Actions)
+  headerMappings: Record<string, string[]>;
+  productRules: Record<string, string>;
+
+  // Actions
   addFiles: (newFiles: UploadedFile[]) => void;
   setMasterData: (data: MasterOrder[]) => void;
-  clearAll: () => void;
   removeFile: (fileId: string) => void;
+  clearAll: () => void;
+
+  // 설정 변경 Actions
+  addHeaderKeyword: (key: string, keyword: string) => void;
+  removeHeaderKeyword: (key: string, keyword: string) => void;
+  addProductRule: (keyword: string, standardName: string) => void;
+  removeProductRule: (keyword: string) => void;
+  resetSettings: () => void; // 초기화
 }
 
-export const useOrderStore = create<OrderState>((set) => ({
-  files: [],
-  masterData: [],
+export const useOrderStore = create<OrderState>()(
+  persist(
+    (set) => ({
+      files: [],
+      masterData: [],
+      
+      // 초기값은 constants.ts에서 가져옴
+      headerMappings: DEFAULT_HEADER_MAPPING,
+      productRules: DEFAULT_PRODUCT_NORMALIZATION_RULES,
 
-  addFiles: (newFiles) => set((state) => ({ 
-    files: [...state.files, ...newFiles] 
-  })),
+      addFiles: (newFiles) => set((state) => ({ files: [...state.files, ...newFiles] })),
+      setMasterData: (data) => set({ masterData: data }),
+      removeFile: (fileId) => set((state) => ({ files: state.files.filter((f) => f.id !== fileId) })),
+      clearAll: () => set({ files: [], masterData: [] }),
 
-  setMasterData: (data) => set({ masterData: data }),
+      // 설정 관리 로직 구현
+      addHeaderKeyword: (key, keyword) => set((state) => ({
+        headerMappings: {
+          ...state.headerMappings,
+          [key]: [...state.headerMappings[key], keyword]
+        }
+      })),
+      
+      removeHeaderKeyword: (key, keyword) => set((state) => ({
+        headerMappings: {
+          ...state.headerMappings,
+          [key]: state.headerMappings[key].filter(k => k !== keyword)
+        }
+      })),
 
-  removeFile: (fileId) => set((state) => ({
-    files: state.files.filter(f => f.id !== fileId),
-    // 파일이 삭제되면 변환된 데이터도 다시 계산해야 할 수 있으므로 일단 초기화하거나 로직 추가 가능
-  })),
+      addProductRule: (keyword, standardName) => set((state) => ({
+        productRules: {
+          ...state.productRules,
+          [keyword]: standardName
+        }
+      })),
 
-  clearAll: () => set({ files: [], masterData: [] }),
-}));
+      removeProductRule: (keyword) => set((state) => {
+        const newRules = { ...state.productRules };
+        delete newRules[keyword];
+        return { productRules: newRules };
+      }),
+
+      resetSettings: () => set({
+        headerMappings: DEFAULT_HEADER_MAPPING,
+        productRules: DEFAULT_PRODUCT_NORMALIZATION_RULES
+      })
+    }),
+    {
+      name: 'sweep-order-settings', 
+      storage: createJSONStorage(() => localStorage), 
+      // 설정만 저장
+      partialize: (state) => ({ headerMappings: state.headerMappings, productRules: state.productRules }), 
+    }
+  )
+);

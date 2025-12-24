@@ -1,5 +1,3 @@
-// src/lib/constants.ts
-
 // 1. 최종 결과물 엑셀의 헤더 순서 (Output.xlsx 기준)
 export const MASTER_HEADERS = [
     "수령인", "수령인 연락처", "우편번호", "주소", "배송메시지",
@@ -7,7 +5,7 @@ export const MASTER_HEADERS = [
   ];
   
   // 2. 헤더 매핑 (거래처마다 다른 헤더 이름을 표준 필드명으로 연결)
-  export const HEADER_MAPPING: Record<string, string[]> = {
+  export const DEFAULT_HEADER_MAPPING: Record<string, string[]> = {
     receiver: [
       '수취인', '수취인명', '수령인', '수령인명', '받는분', '이름', '주문자명', '수령인(이름)'
     ],
@@ -36,7 +34,7 @@ export const MASTER_HEADERS = [
   };
   // 3. 상품명 정규화 규칙 
   // 왼쪽의 키워드가 포함되어 있다면 -> 오른쪽의 표준 상품명으로 변환
-  export const PRODUCT_NORMALIZATION_RULES: Record<string, string> = {
+  export const DEFAULT_PRODUCT_NORMALIZATION_RULES: Record<string, string> = {
     '반숙': '반숙란 30구',
     '구운': '구운란 30구',
     '훈제': '훈제란 30구',

@@ -1,8 +1,7 @@
-// src/lib/excelHandler.ts
 import * as XLSX from 'xlsx';
-import { v4 as uuidv4 } from 'uuid'; // npm install uuid 했다고 가정 (없으면 Math.random 대체 가능)
+import { v4 as uuidv4 } from 'uuid'; 
 import type { MasterOrder, UploadedFile } from '../types';
-import { HEADER_MAPPING, PRODUCT_NORMALIZATION_RULES } from './constants';
+
 
 /**
  * Excel Date Serial -> JS Date 변환 유틸
@@ -12,15 +11,15 @@ const excelDateToJSDate = (serial: number) => {
 };
 
 /**
- * Fuzzy Matching: 입력된 헤더와 매핑된 키워드 간의 일치 여부 확인
- * 공백 제거 후 포함 여부(includes)로 판단
+ * 헤더 매핑: 입력된 헤더와 매핑 규칙 간의 일치 여부 확인
+ * 1단계: 공백 제거 후 정확히 일치(Exact Match) 먼저 확인
+ * 2단계: 포함 여부(Fuzzy Match)로 판단
  */
-const findMappedKey = (header: string): string | null => {
-  // 엑셀 헤더 공백 제거
-  const normalizedHeader = header.replace(/\s+/g, '').trim();
+const findMappedKey = (header: string, mappingRules: Record<string, string[]>): string | null => {
+  const normalizedHeader = header.replace(/\s+/g, '').trim(); // 엑셀 헤더 공백 제거거
 
   // 1단계: 정확히 일치하는 경우 (Priority 1: Exact Match)
-  for (const [key, candidates] of Object.entries(HEADER_MAPPING)) {
+  for (const [key, candidates] of Object.entries(mappingRules)) {
     const isExactMatch = candidates.some(candidate => {
       return normalizedHeader === candidate.replace(/\s+/g, '').trim();
     });
@@ -28,7 +27,7 @@ const findMappedKey = (header: string): string | null => {
   }
 
   // 2단계: 포함되는지 확인 (정확히 일치하는 게 없을 때만 수행)
-  for (const [key, candidates] of Object.entries(HEADER_MAPPING)) {
+  for (const [key, candidates] of Object.entries(mappingRules)) {
     const isFuzzyMatch = candidates.some(candidate => {
        const normalizedCandidate = candidate.replace(/\s+/g, '').trim();
        return normalizedHeader.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedHeader);
@@ -41,17 +40,16 @@ const findMappedKey = (header: string): string | null => {
 
 /**
  * 상품명 정규화 (Normalization)
- * 정의된 키워드 매칭을 통해 표준 상품명으로 변환
+ * 규칙을 인자로 받음
  */
-const normalizeProductName = (rawName: string): string => {
+const normalizeProductName = (rawName: string, rules: Record<string, string>): string => {
   if (!rawName) return '';
-  
-  for (const [keyword, standardName] of Object.entries(PRODUCT_NORMALIZATION_RULES)) {
+  for (const [keyword, standardName] of Object.entries(rules)) {
     if (rawName.includes(keyword)) {
       return standardName;
     }
   }
-  return rawName; // 매칭되는 규칙이 없을 경우 원본 유지
+  return rawName;
 };
 
 /**
@@ -94,50 +92,47 @@ export const processExcelFile = async (file: File): Promise<UploadedFile> => {
  * 2. 데이터 전처리 (Trimming)
  * 3. 상품명 정규화 수행
  */
-export const convertToMasterData = (files: UploadedFile[]): MasterOrder[] => {
+export const convertToMasterData = (
+  files: UploadedFile[], 
+  mappingRules: Record<string, string[]>, 
+  productRules: Record<string, string>    
+): MasterOrder[] => {
+  
   const masterList: MasterOrder[] = [];
 
   files.forEach((file) => {
     file.rows.forEach((row: any) => {
-      if (Object.keys(row).length === 0) return; // 빈 행 제외
+      if (Object.keys(row).length === 0) return;
 
-      const newOrder: any = {
-        id: uuidv4(),
-        courier: '한진택배', // Default Value
-      };
+      const newOrder: any = { id: uuidv4(), courier: '한진택배' };
 
       Object.keys(row).forEach((colKey) => {
-        const mappedKey = findMappedKey(colKey);
+        // 인자로 받은 헤더 매핑 규칙을 사용
+        const mappedKey = findMappedKey(colKey, mappingRules);
         
         if (mappedKey) {
           let value = row[colKey];
           
-          // 데이터 클렌징 (연락처, 우편번호 공백 제거)
           if (mappedKey === 'contact' || mappedKey === 'postCode') {
             value = String(value).trim();
           }
           
-          // 상품명 정규화 적용
           if (mappedKey === 'productName') {
-            value = normalizeProductName(String(value));
+            // 인자로 받은 상품명 정규화 규칙 사용
+            value = normalizeProductName(String(value), productRules);
           }
 
-          // 덮어쓰기 방지 로직
           const existingValue = newOrder[mappedKey];
-          
           if (!existingValue) {
-            newOrder[mappedKey] = value;
-          } 
-          // 기존 값이 있어도, 새로운 값이 유효하면(빈칸 아님) 덮어씀
-          else if (value && String(value).trim() !== '') {
+             newOrder[mappedKey] = value;
+          } else if (value && String(value).trim() !== '') {
              newOrder[mappedKey] = value;
           }
         }
       });
 
-      // 필수 필드(수령인, 상품명) 검증 후 리스트 추가
       if (newOrder.receiver && newOrder.productName) {
-        if (!newOrder.quantity) newOrder.quantity = 1; // 수량 누락 시 기본값 1
+        if (!newOrder.quantity) newOrder.quantity = 1;
         masterList.push(newOrder as MasterOrder);
       }
     });
