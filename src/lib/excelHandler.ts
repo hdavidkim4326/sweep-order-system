@@ -16,13 +16,26 @@ const excelDateToJSDate = (serial: number) => {
  * 공백 제거 후 포함 여부(includes)로 판단
  */
 const findMappedKey = (header: string): string | null => {
+  // 엑셀 헤더 공백 제거
   const normalizedHeader = header.replace(/\s+/g, '').trim();
-  
+
+  // 1단계: 정확히 일치하는 경우 (Priority 1: Exact Match)
   for (const [key, candidates] of Object.entries(HEADER_MAPPING)) {
-    if (candidates.some(c => normalizedHeader.includes(c) || c.includes(normalizedHeader))) {
-      return key;
-    }
+    const isExactMatch = candidates.some(candidate => {
+      return normalizedHeader === candidate.replace(/\s+/g, '').trim();
+    });
+    if (isExactMatch) return key;
   }
+
+  // 2단계: 포함되는지 확인 (정확히 일치하는 게 없을 때만 수행)
+  for (const [key, candidates] of Object.entries(HEADER_MAPPING)) {
+    const isFuzzyMatch = candidates.some(candidate => {
+       const normalizedCandidate = candidate.replace(/\s+/g, '').trim();
+       return normalizedHeader.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedHeader);
+    });
+    if (isFuzzyMatch) return key;
+  }
+
   return null;
 };
 
