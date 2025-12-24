@@ -44,29 +44,52 @@ function App() {
     try {
       const targetFiles = Array.from(fileList);
       
-      // 파일 파싱 병렬 처리
+      // 파일 파싱 (병렬 처리)
       const uploadedFiles = await Promise.all(
         targetFiles.map(async (file) => await processExcelFile(file))
       );
 
-      // 현재 스토어에 있는 파일 목록을 가져옴
+      // 중복 파일 감지 로직
       const currentFiles = useOrderStore.getState().files;
       
-      // 이미 존재하는 파일명(name)은 제외하고 새로운 파일만 남김
-      const uniqueNewFiles = uploadedFiles.filter(newFile => 
-        !currentFiles.some(existing => existing.name === newFile.name)
-      );
+      const newFiles: typeof uploadedFiles = [];       // 완전히 새로운 파일들
+      const duplicateFiles: typeof uploadedFiles = []; // 이미 있는 파일들(이름 기준)
 
-      // 중복을 제외했더니 추가할 파일이 없다면 종료 (선택 사항: alert 띄워도 됨)
-      if (uniqueNewFiles.length === 0) {
-        alert("이미 추가된 파일입니다.");
+      uploadedFiles.forEach(file => {
+        const isDuplicate = currentFiles.some(existing => existing.name === file.name);
+        if (isDuplicate) {
+          duplicateFiles.push(file);
+        } else {
+          newFiles.push(file);
+        }
+      });
+
+      // 중복 파일 처리 여부 묻기
+      let finalFilesToAdd = [...newFiles];
+
+      if (duplicateFiles.length > 0) {
+        const dupNames = duplicateFiles.map(f => f.name).join('\n');
+        
+        const userWantsToAdd = window.confirm(
+          `다음 파일들은 이미 목록에 존재합니다:\n\n${dupNames}\n\n그래도 중복해서 추가하시겠습니까?`
+        );
+
+        if (userWantsToAdd) {
+          finalFilesToAdd = [...finalFilesToAdd, ...duplicateFiles];
+        }
+      }
+
+      // 추가할 파일이 하나도 없으면 종료
+      if (finalFilesToAdd.length === 0) {
         setIsProcessing(false);
         return;
       }
 
-      addFiles(uniqueNewFiles);
+      // 최종 데이터 업데이트
+      addFiles(finalFilesToAdd);
 
-      const allFiles = [...currentFiles, ...uniqueNewFiles]; 
+      // 전체 데이터 재계산 (기존 + 이번에 추가된 파일)
+      const allFiles = [...currentFiles, ...finalFilesToAdd]; 
       const newMasterData = convertToMasterData(allFiles);
       setMasterData(newMasterData);
 
@@ -182,7 +205,17 @@ function App() {
               className={`relative border-2 border-dashed rounded-lg h-40 flex flex-col items-center justify-center text-center transition-all cursor-pointer group
                 ${isDragging ? 'border-orange-500 bg-orange-50' : 'border-gray-200 bg-gray-50/50 hover:bg-white hover:border-orange-300'}`}
             >
-              <input type="file" multiple accept=".xlsx, .xls" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFiles(e.target.files)} />
+              <input // 파일 업로드 같은 값 두번 가능하게 하기 위해 값 초기화 추가 + 수정 가독성 위해서 줄바꿈
+                type="file"
+                multiple
+                accept=".xlsx, .xls"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                onChange={(e) => {
+                  handleFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+
               <Upload className={`w-8 h-8 mb-2 ${isDragging ? 'text-orange-600' : 'text-gray-400'}`} />
               <p className="text-sm font-medium text-gray-600">클릭 또는 드래그하여 파일 업로드</p>
             </div>
