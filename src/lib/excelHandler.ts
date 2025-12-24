@@ -1,18 +1,22 @@
 // src/lib/excelHandler.ts
 import * as XLSX from 'xlsx';
+import { v4 as uuidv4 } from 'uuid'; // npm install uuid 했다고 가정 (없으면 Math.random 대체 가능)
 import { MasterOrder, UploadedFile } from '../types';
 import { HEADER_MAPPING, PRODUCT_NORMALIZATION_RULES } from './constants';
-import { v4 as uuidv4 } from 'uuid'; // npm install uuid needed later, or use simple random string
 
-// 1. 엑셀 날짜 시리얼 번호를 JS Date로 변환 (필요시 사용)
+/**
+ * Excel Date Serial -> JS Date 변환 유틸
+ */
 const excelDateToJSDate = (serial: number) => {
    return new Date(Math.round((serial - 25569) * 86400 * 1000));
 };
 
-// 2. 가장 유사한 헤더 찾기 (Fuzzy Matching)
-// 예: "수령인명" -> "receiver" 매핑 찾기
+/**
+ * Fuzzy Matching: 입력된 헤더와 매핑된 키워드 간의 일치 여부 확인
+ * 공백 제거 후 포함 여부(includes)로 판단
+ */
 const findMappedKey = (header: string): string | null => {
-  const normalizedHeader = header.replace(/\s+/g, '').trim(); // 공백 제거
+  const normalizedHeader = header.replace(/\s+/g, '').trim();
   
   for (const [key, candidates] of Object.entries(HEADER_MAPPING)) {
     if (candidates.some(c => normalizedHeader.includes(c) || c.includes(normalizedHeader))) {
@@ -22,22 +26,24 @@ const findMappedKey = (header: string): string | null => {
   return null;
 };
 
-// 3. 상품명 정규화 (핵심 로직 ⭐)
+/**
+ * 상품명 정규화 (Normalization)
+ * 정의된 키워드 매칭을 통해 표준 상품명으로 변환
+ */
 const normalizeProductName = (rawName: string): string => {
   if (!rawName) return '';
   
-  // 규칙에 정의된 키워드가 포함되어 있는지 확인
   for (const [keyword, standardName] of Object.entries(PRODUCT_NORMALIZATION_RULES)) {
     if (rawName.includes(keyword)) {
       return standardName;
     }
   }
-  
-  // 규칙에 없으면 원본 반환 (혹은 '기타' 처리)
-  return rawName;
+  return rawName; // 매칭되는 규칙이 없을 경우 원본 유지
 };
 
-// 4. 파일 읽기 및 데이터 변환 (Main Function)
+/**
+ * 엑셀 파일 로드 및 JSON 파싱 (비동기 처리)
+ */
 export const processExcelFile = async (file: File): Promise<UploadedFile> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -47,15 +53,15 @@ export const processExcelFile = async (file: File): Promise<UploadedFile> => {
         const data = e.target?.result;
         const workbook = XLSX.read(data, { type: 'binary' });
         
-        // 첫 번째 시트만 사용한다고 가정
+        // 첫 번째 시트 데이터 추출
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        // JSON으로 변환 (헤더 포함)
+        // Header가 포함된 Raw Data 추출
         const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
         
         resolve({
-          id: Math.random().toString(36).substr(2, 9),
+          id: uuidv4(), // 고유 ID 부여
           name: file.name,
           rows: rawData,
         });
@@ -69,27 +75,31 @@ export const processExcelFile = async (file: File): Promise<UploadedFile> => {
   });
 };
 
-// 5. 로우 데이터 -> 통합 데이터(MasterOrder) 변환
+/**
+ * Raw Data -> MasterOrder 표준 포맷 변환
+ * 1. 컬럼 매핑 (Header Mapping)
+ * 2. 데이터 전처리 (Trimming)
+ * 3. 상품명 정규화 수행
+ */
 export const convertToMasterData = (files: UploadedFile[]): MasterOrder[] => {
   const masterList: MasterOrder[] = [];
 
   files.forEach((file) => {
     file.rows.forEach((row: any) => {
-      // 빈 행 건너뛰기
-      if (Object.keys(row).length === 0) return;
+      if (Object.keys(row).length === 0) return; // 빈 행 제외
 
       const newOrder: any = {
-        id: Math.random().toString(36).substr(2, 9), // 고유 ID 생성
-        courier: '한진택배', // 기본값
+        id: uuidv4(),
+        courier: '한진택배', // Default Value
       };
 
-      // 각 컬럼 매핑 처리
       Object.keys(row).forEach((colKey) => {
         const mappedKey = findMappedKey(colKey);
+        
         if (mappedKey) {
           let value = row[colKey];
           
-          // 데이터 전처리 (전화번호 하이픈 등)
+          // 데이터 클렌징 (연락처, 우편번호 공백 제거)
           if (mappedKey === 'contact' || mappedKey === 'postCode') {
             value = String(value).trim();
           }
@@ -103,10 +113,9 @@ export const convertToMasterData = (files: UploadedFile[]): MasterOrder[] => {
         }
       });
 
-      // 필수 데이터(수령인, 상품명)가 있는 경우에만 추가
+      // 필수 필드(수령인, 상품명) 검증 후 리스트 추가
       if (newOrder.receiver && newOrder.productName) {
-        // 수량이 없으면 1로 기본 설정
-        if (!newOrder.quantity) newOrder.quantity = 1;
+        if (!newOrder.quantity) newOrder.quantity = 1; // 수량 누락 시 기본값 1
         masterList.push(newOrder as MasterOrder);
       }
     });
