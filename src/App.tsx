@@ -1,6 +1,6 @@
 // src/App.tsx
-import React, { useCallback, useState } from 'react';
-import { Upload, FileSpreadsheet, Trash2, Download, AlertCircle } from 'lucide-react';
+import React, { useCallback, useState, useEffect } from 'react';
+import { Upload, FileSpreadsheet, Trash2, Download, AlertCircle, Search, X, FileDown } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useOrderStore } from './store/orderStore';
@@ -8,14 +8,34 @@ import { processExcelFile, convertToMasterData } from './lib/excelHandler';
 import { MASTER_HEADERS } from './lib/constants';
 
 function App() {
-  const { files, masterData, addFiles, setMasterData, clearAll } = useOrderStore();
+  const { files, masterData, addFiles, setMasterData, clearAll, removeFile } = useOrderStore();
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // 검색 기능능(Ctrl+F 기능)
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // 업로드 파일 삭제 시 데이터 재계산 로직
+  const handleRemoveFile = (fileId: string) => {
+    removeFile(fileId); // 스토어에서 파일 삭제
+    const remainingFiles = useOrderStore.getState().files.filter(f => f.id !== fileId);
+    const newMasterData = convertToMasterData(remainingFiles);
+    setMasterData(newMasterData);
+  };
+
+  // 개별 원본 파일 다운로드 (열기)
+  const handleDownloadRaw = (file: any) => {
+    const ws = XLSX.utils.json_to_sheet(file.rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Original");
+    XLSX.writeFile(wb, `원본_${file.name}`);
+  };
+  
+
   /**
-   * 파일 처리 핸들러
-   * 다중 파일 병렬 파싱(Promise.all) 후 Global State 업데이트
-   */
+     * 파일 처리 핸들러
+     * 다중 파일 병렬 파싱(Promise.all) 후 Global State 업데이트
+     */
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
 
@@ -29,13 +49,25 @@ function App() {
         targetFiles.map(async (file) => await processExcelFile(file))
       );
 
-      // 1. 원본 파일 State 업데이트
-      addFiles(uploadedFiles);
-
-      // 2. 누적된 전체 파일을 기준으로 통합 데이터 재생성
-      const currentFiles = useOrderStore.getState().files; 
-      const newMasterData = convertToMasterData(currentFiles);
+      // 현재 스토어에 있는 파일 목록을 가져옴
+      const currentFiles = useOrderStore.getState().files;
       
+      // 이미 존재하는 파일명(name)은 제외하고 새로운 파일만 남김
+      const uniqueNewFiles = uploadedFiles.filter(newFile => 
+        !currentFiles.some(existing => existing.name === newFile.name)
+      );
+
+      // 중복을 제외했더니 추가할 파일이 없다면 종료 (선택 사항: alert 띄워도 됨)
+      if (uniqueNewFiles.length === 0) {
+        alert("이미 추가된 파일입니다.");
+        setIsProcessing(false);
+        return;
+      }
+
+      addFiles(uniqueNewFiles);
+
+      const allFiles = [...currentFiles, ...uniqueNewFiles]; 
+      const newMasterData = convertToMasterData(allFiles);
       setMasterData(newMasterData);
 
     } catch (error) {
@@ -110,6 +142,17 @@ function App() {
     saveAs(data, `스윕농장_통합발주서_${dateStr}.xlsx`);
   };
 
+  // 검색 필터링 로직
+  const filteredData = masterData.filter((row) => {
+    const searchString = searchTerm.toLowerCase();
+    return (
+      row.receiver.toLowerCase().includes(searchString) ||
+      row.productName.toLowerCase().includes(searchString) ||
+      row.address.toLowerCase().includes(searchString) ||
+      row.contact.includes(searchString)
+    );
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans pb-20">
       {/* Header */}
@@ -119,161 +162,158 @@ function App() {
             <FileSpreadsheet className="w-7 h-7" />
             <h1 className="text-xl font-bold tracking-tight">스윕농장 발주 통합 시스템</h1>
           </div>
-          <div className="flex items-center gap-4">
-             {/* Debug Info */}
-             <div className="text-xs text-gray-400 font-mono hidden sm:block">
-                Files: {files.length} | Rows: {masterData.length}
-             </div>
+          <div className="text-xs text-gray-400 font-mono hidden sm:block">
+             Files: {files.length} | Rows: {masterData.length}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-10 space-y-8">
+      <main className="max-w-7xl mx-auto px-6 py-10 space-y-6">
         
-        {/* Upload Section */}
-        <section className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <Upload className="w-6 h-6 text-orange-500" />
-                주문서 업로드
-              </h2>
-              <p className="text-gray-500 mt-1">
-                판매처 엑셀 파일을 여기에 끌어다 놓으세요. (다중 업로드 지원)
-              </p>
-            </div>
-            
-            {files.length > 0 && (
-              <button 
-                onClick={clearAll}
-                className="text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-              >
-                <Trash2 className="w-4 h-4" />
-                초기화
-              </button>
-            )}
-          </div>
-
-          {/* Drag & Drop Zone */}
-          <div 
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            className={`
-              relative border-2 border-dashed rounded-xl p-12 text-center transition-all cursor-pointer group
-              ${isDragging 
-                ? 'border-orange-500 bg-orange-50 scale-[1.01]' 
-                : 'border-gray-200 bg-gray-50/50 hover:bg-white hover:border-orange-300'
-              }
-            `}
-          >
-            <input 
-              type="file" 
-              multiple 
-              accept=".xlsx, .xls"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={(e) => handleFiles(e.target.files)}
-            />
-            
-            <div className="flex flex-col items-center justify-center pointer-events-none">
-              <div className={`w-16 h-16 rounded-full shadow-sm flex items-center justify-center mb-4 transition-colors ${isDragging ? 'bg-orange-100' : 'bg-white'}`}>
-                {isProcessing ? (
-                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-                ) : (
-                   <Upload className={`w-8 h-8 ${isDragging ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-500'}`} />
-                )}
-              </div>
-              <p className="text-lg font-medium text-gray-700">
-                {isDragging ? "파일을 놓아주세요" : "여기를 클릭하거나 파일을 드래그하세요"}
-              </p>
-              <p className="text-sm text-gray-400 mt-2">
-                지원 형식: .xlsx, .xls
-              </p>
-            </div>
-          </div>
-
-          {/* File List Chips */}
-          {files.length > 0 && (
-            <div className="mt-6 flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
-              {files.map((file) => (
-                <div key={file.id} className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 flex items-center gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-green-600" />
-                  {file.name}
-                  <span className="text-xs text-slate-400">({file.rows.length}행)</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Preview Section */}
-        <section className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 min-h-[400px]">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <FileSpreadsheet className="w-6 h-6 text-green-600" />
-              통합 결과 미리보기
-              {masterData.length > 0 && (
-                <span className="text-sm font-normal text-gray-500 ml-2 bg-gray-100 px-2 py-1 rounded-md">
-                  Total: {masterData.length}
-                </span>
-              )}
-            </h2>
-            <button 
-              onClick={handleDownload}
-              disabled={masterData.length === 0}
-              className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95"
+        {/* 1. 업로드 섹션 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* 왼쪽: 드래그 앤 드롭 */}
+          <section className="lg:col-span-2 bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
+                <Upload className="w-5 h-5 text-orange-500" /> 주문서 업로드
+             </h2>
+             <div 
+              onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+              className={`relative border-2 border-dashed rounded-lg h-40 flex flex-col items-center justify-center text-center transition-all cursor-pointer group
+                ${isDragging ? 'border-orange-500 bg-orange-50' : 'border-gray-200 bg-gray-50/50 hover:bg-white hover:border-orange-300'}`}
             >
-              <Download className="w-5 h-5" />
-              엑셀 다운로드
-            </button>
+              <input type="file" multiple accept=".xlsx, .xls" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={(e) => handleFiles(e.target.files)} />
+              <Upload className={`w-8 h-8 mb-2 ${isDragging ? 'text-orange-600' : 'text-gray-400'}`} />
+              <p className="text-sm font-medium text-gray-600">클릭 또는 드래그하여 파일 업로드</p>
+            </div>
+          </section>
+
+          {/* 오른쪽: 파일 목록 관리 (Feature 1: 개별 삭제/열기) */}
+          <section className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-gray-900">파일 목록</h2>
+              {files.length > 0 && (
+                <button onClick={clearAll} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
+                  <Trash2 className="w-3 h-3" /> 전체 삭제
+                </button>
+              )}
+            </div>
+            
+            <div className="flex-1 overflow-y-auto max-h-40 space-y-2">
+              {files.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-10">업로드된 파일이 없습니다.</p>
+              ) : (
+                files.map((file) => (
+                  <div key={file.id} className="group flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100 text-sm hover:border-orange-200 transition-colors">
+                    <div className="flex items-center gap-2 overflow-hidden cursor-pointer" onClick={() => handleDownloadRaw(file)} title="클릭하여 원본 다운로드">
+                      <FileSpreadsheet className="w-4 h-4 text-green-600 flex-shrink-0" />
+                      <span className="truncate text-slate-700 font-medium">{file.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                       <span className="text-xs text-gray-400 mr-2">{file.rows.length}행</span>
+                       <button onClick={() => handleRemoveFile(file.id)} className="text-gray-400 hover:text-red-500 p-1 rounded hover:bg-red-50">
+                         <X className="w-4 h-4" />
+                       </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+
+        {/* 2. 미리보기 섹션 (Feature 2 & 3: 엑셀 스타일 + 검색) */}
+        <section className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[500px]">
+          {/* Toolbar */}
+          <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <FileSpreadsheet className="w-5 h-5 text-green-600" />
+              <h2 className="text-lg font-bold text-gray-900">통합 결과</h2>
+              <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full font-mono">
+                {filteredData.length} Rows
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {/* 검색창 */}
+              <div className="relative flex-1 sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input 
+                  type="text" 
+                  placeholder="수령인, 주소, 상품명 검색..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                />
+              </div>
+
+              <button 
+                onClick={handleDownload}
+                disabled={masterData.length === 0}
+                className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-all"
+              >
+                <Download className="w-4 h-4" />
+                엑셀 다운로드
+              </button>
+            </div>
           </div>
 
-          {/* Data Table */}
-          <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+          {/* 엑셀 스타일 테이블 Grid */}
+          <div className="flex-1 overflow-auto bg-gray-50 relative">
             {masterData.length === 0 ? (
-              <div className="h-64 flex flex-col items-center justify-center text-gray-400">
-                <AlertCircle className="w-12 h-12 mb-3 opacity-20" />
-                <p>데이터가 존재하지 않습니다.</p>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                <FileSpreadsheet className="w-16 h-16 mb-4 opacity-20" />
+                <p>파일을 업로드하면 통합된 결과가 여기에 표시됩니다.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[600px]">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-gray-50 text-gray-600 font-medium border-b sticky top-0 z-10">
-                    <tr>
-                      <th className="px-4 py-3 w-12">No</th>
-                      <th className="px-4 py-3">수령인</th>
-                      <th className="px-4 py-3">연락처</th>
-                      <th className="px-4 py-3 w-64">주소</th>
-                      <th className="px-4 py-3">상품명 (옵션)</th>
-                      <th className="px-4 py-3 w-16 text-center">수량</th>
-                      <th className="px-4 py-3">배송메시지</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {masterData.map((row, index) => (
-                      <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-4 py-3 text-gray-400">{index + 1}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900">{row.receiver}</td>
-                        <td className="px-4 py-3">{row.contact}</td>
-                        <td className="px-4 py-3 text-gray-600 truncate max-w-xs" title={row.address}>
-                          [{row.postCode}] {row.address}
+              <table className="w-full text-sm text-left border-collapse bg-white">
+                <thead className="bg-gray-100 text-gray-600 font-medium sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-3 py-2 border border-gray-300 w-12 text-center bg-gray-100">No</th>
+                    {MASTER_HEADERS.map((header) => (
+                      <th key={header} className="px-3 py-2 border border-gray-300 whitespace-nowrap min-w-[100px]">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.length === 0 ? (
+                     <tr>
+                        <td colSpan={10} className="p-10 text-center text-gray-400">
+                           검색 결과가 없습니다.
                         </td>
-                        <td className="px-4 py-3 text-blue-600 font-medium">
-                          {row.productName}
+                     </tr>
+                  ) : (
+                    filteredData.map((row, index) => (
+                      <tr key={row.id} className="hover:bg-blue-50 transition-colors group">
+                        <td className="px-3 py-1.5 border border-gray-200 text-center text-gray-400 bg-gray-50">{index + 1}</td>
+                        <td className="px-3 py-1.5 border border-gray-200 text-gray-900">{row.receiver}</td>
+                        <td className="px-3 py-1.5 border border-gray-200">{row.contact}</td>
+                        <td className="px-3 py-1.5 border border-gray-200">{row.postCode}</td>
+                        <td className="px-3 py-1.5 border border-gray-200 max-w-[300px] truncate" title={row.address}>
+                          {row.address}
                         </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-bold">
-                            {row.quantity}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-400 truncate max-w-[200px]" title={row.message}>
+                        <td className="px-3 py-1.5 border border-gray-200 max-w-[200px] truncate text-gray-500" title={row.message}>
                           {row.message}
                         </td>
+                        <td className="px-3 py-1.5 border border-gray-200 font-medium text-blue-600 bg-blue-50/30">
+                          {row.productName}
+                        </td>
+                        <td className="px-3 py-1.5 border border-gray-200 text-center font-bold bg-gray-50">
+                          {row.quantity}
+                        </td>
+                        <td className="px-3 py-1.5 border border-gray-200 text-center text-gray-500 text-xs">
+                          {row.courier}
+                        </td>
+                        <td className="px-3 py-1.5 border border-gray-200 text-xs">
+                          {row.trackingNumber}
+                        </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
             )}
           </div>
         </section>
