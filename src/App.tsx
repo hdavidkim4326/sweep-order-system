@@ -1,6 +1,6 @@
 // src/App.tsx
 import React, { useCallback, useState, useEffect } from 'react';
-import { Upload, FileSpreadsheet, Trash2, Download, AlertCircle, Search, X, FileDown } from 'lucide-react';
+import { Upload, FileSpreadsheet, Trash2, Download, AlertCircle, Search, X, HelpCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { useOrderStore } from './store/orderStore';
@@ -176,53 +176,74 @@ function App() {
     );
   });
 
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans pb-20">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-orange-600 cursor-pointer" onClick={() => window.location.reload()}>
-            <FileSpreadsheet className="w-7 h-7" />
-            <h1 className="text-xl font-bold tracking-tight">스윕농장 발주 통합 시스템</h1>
+      <header className="sticky top-0 z-50 bg-white border-b border-gray-200">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+          {/* 제목목 */}
+          <div
+            className="flex cursor-pointer items-center gap-2 text-orange-600"
+            onClick={() => window.location.reload()}
+          >
+            <FileSpreadsheet className="h-7 w-7" />
+            <h1 className="text-xl font-bold tracking-tight">
+              스윕농장 발주 통합 시스템
+            </h1>
           </div>
-          <div className="text-xs text-gray-400 font-mono hidden sm:block">
-             Files: {files.length} | Rows: {masterData.length}
+
+          {/* 우측 사이트 정보 */}
+          <div className="flex items-center gap-4">
+            <div className="hidden font-mono text-xs text-gray-400 sm:block">
+              Files: {files.length} | Rows: {masterData.length}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsHelpOpen(true)}
+              title="사용 방법 보기"
+              className="rounded-full p-2 text-gray-400 transition-colors hover:bg-orange-50 hover:text-orange-600"
+            >
+              <HelpCircle className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </header>
 
+
       <main className="max-w-7xl mx-auto px-6 py-10 space-y-6">
         
         {/* 1. 업로드 섹션 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 왼쪽: 드래그 앤 드롭 */}
-          <section className="lg:col-span-2 bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
-                <Upload className="w-5 h-5 text-orange-500" /> 주문서 업로드
-             </h2>
-             <div 
+        <section className="bg-white rounded-xl shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-3">
+          
+          {/* 왼쪽: 드래그 앤 드롭 영역 */}
+          <div className="lg:col-span-2 p-6">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
+              <Upload className="w-5 h-5 text-orange-500" /> 주문서 업로드
+            </h2>
+            <div 
               onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
               className={`relative border-2 border-dashed rounded-lg h-40 flex flex-col items-center justify-center text-center transition-all cursor-pointer group
                 ${isDragging ? 'border-orange-500 bg-orange-50' : 'border-gray-200 bg-gray-50/50 hover:bg-white hover:border-orange-300'}`}
             >
-              <input // 파일 업로드 같은 값 두번 가능하게 하기 위해 값 초기화 추가 + 수정 가독성 위해서 줄바꿈
-                type="file"
-                multiple
-                accept=".xlsx, .xls"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              <input 
+                type="file" 
+                multiple 
+                accept=".xlsx, .xls" 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
                 onChange={(e) => {
                   handleFiles(e.target.files);
-                  e.target.value = '';
+                  e.target.value = ''; 
                 }}
               />
-
               <Upload className={`w-8 h-8 mb-2 ${isDragging ? 'text-orange-600' : 'text-gray-400'}`} />
               <p className="text-sm font-medium text-gray-600">클릭 또는 드래그하여 파일 업로드</p>
             </div>
-          </section>
+          </div>
 
-          {/* 오른쪽: 파일 목록 관리 (Feature 1: 개별 삭제/열기) */}
-          <section className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex flex-col">
+          {/* 오른쪽: 파일 목록 관리 (1/3 차지) */}
+          <div className="relative p-6 flex flex-col h-full">
+            {/* divider */}
+            <div className="hidden lg:block absolute left-0 top-6 bottom-4 w-px bg-gray-100" />
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-bold text-gray-900">파일 목록</h2>
               {files.length > 0 && (
@@ -232,17 +253,19 @@ function App() {
               )}
             </div>
             
-            <div className="flex-1 overflow-y-auto max-h-40 space-y-2">
+            <div className="flex-1 overflow-y-auto max-h-40 space-y-2 pr-1 custom-scrollbar">
               {files.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-10">업로드된 파일이 없습니다.</p>
+                <div className="h-full flex flex-col items-center justify-center text-gray-400 text-sm">
+                   <p>업로드된 파일이 없습니다.</p>
+                </div>
               ) : (
                 files.map((file) => (
                   <div key={file.id} className="group flex items-center justify-between p-2 bg-slate-50 rounded border border-slate-100 text-sm hover:border-orange-200 transition-colors">
-                    <div className="flex items-center gap-2 overflow-hidden cursor-pointer" onClick={() => handleDownloadRaw(file)} title="클릭하여 원본 다운로드">
+                    <div className="flex items-center gap-2 overflow-hidden cursor-pointer w-full" onClick={() => handleDownloadRaw(file)} title="클릭하여 원본 다운로드">
                       <FileSpreadsheet className="w-4 h-4 text-green-600 flex-shrink-0" />
                       <span className="truncate text-slate-700 font-medium">{file.name}</span>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-shrink-0">
                        <span className="text-xs text-gray-400 mr-2">{file.rows.length}행</span>
                        <button onClick={() => handleRemoveFile(file.id)} className="text-gray-400 hover:text-red-500 p-1 rounded hover:bg-red-50">
                          <X className="w-4 h-4" />
@@ -252,8 +275,8 @@ function App() {
                 ))
               )}
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
 
         {/* 2. 미리보기 섹션 (Feature 2 & 3: 엑셀 스타일 + 검색) */}
         <section className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[500px]">
@@ -351,6 +374,69 @@ function App() {
           </div>
         </section>
       </main>
+      {/* 사용 가이드 모달 */}
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-all">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* 모달 헤더 */}
+            <div className="bg-orange-50 px-6 py-4 flex justify-between items-center border-b border-orange-100">
+              <h3 className="text-lg font-bold text-orange-800 flex items-center gap-2">
+                <HelpCircle className="w-5 h-5" /> 사용 가이드
+              </h3>
+              <button onClick={() => setIsHelpOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* 모달 내용 */}
+            <div className="p-6 space-y-6">
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center flex-shrink-0 font-bold">1</div>
+                <div>
+                  <h4 className="font-bold text-gray-900 mb-1">엑셀 파일 업로드</h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    거래처(진케어, 담아 등)에서 받은 엑셀 주문서를 &nbsp;
+                    <span className="px-1 py-0.5 rounded font-medium text-orange-600">파일 클릭 또는 드래그 앤 드롭</span>하여 추가하세요.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 font-bold">2</div>
+                <div>
+                  <h4 className="font-bold text-gray-900 mb-1">데이터 자동 변환 & 확인</h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    복잡한 상품명과 주소가 <span className="text-blue-600 font-medium">표준 양식</span>으로 자동 변환됩니다.<br/>
+                    오른쪽 상단 검색창을 통해 특정 주문을 찾을 수 있습니다.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center flex-shrink-0 font-bold">3</div>
+                <div>
+                  <h4 className="font-bold text-gray-900 mb-1">통합 엑셀 다운로드</h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    모든 주문이 합쳐진 결과를 <span className="bg-green-50 text-green-700 px-1 py-0.5 rounded font-medium border border-green-200">엑셀 다운로드</span> 버튼을 눌러<br/>
+                    통합 발주 양식으로 저장하세요.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="bg-gray-50 px-6 py-4 flex justify-end">
+              <button 
+                onClick={() => setIsHelpOpen(false)}
+                className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800 transition-colors"
+              >
+                확인했습니다
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    
     </div>
   );
 }
